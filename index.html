@@ -1,0 +1,95 @@
+<html>
+<body>
+<div>
+    <img id="myimage" src=""/>
+</div>
+<style type="text/css">
+    canvas, img {
+        image-rendering: optimizeSpeed;             /* Older versions of FF          */
+        image-rendering: -moz-crisp-edges;          /* FF 6.0+                       */
+        image-rendering: -webkit-optimize-contrast; /* Safari                        */
+        image-rendering: -o-crisp-edges;            /* OS X & Windows Opera (12.02+) */
+        image-rendering: pixelated;                 /* Awesome future-browsers       */
+        -ms-interpolation-mode: nearest-neighbor;   /* IE                            */
+    }
+</style>
+<div>
+    <canvas id="mycanvas" width="512" height="512" style="border: 1px solid black;"/>
+</div>
+<script type="text/javascript">
+    function println(msg) { console.log(msg); }
+
+    /**
+     * @return {HTMLCanvasElement}
+     */
+    function createCanvas(width, height) {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        return canvas;
+    }
+
+    /**
+     * @return {HTMLCanvasElement}
+     */
+    HTMLImageElement.prototype.toCanvas = function() {
+        const image = this;
+        const canvas = createCanvas(image.width, image.height);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        return canvas;
+    };
+
+    /**
+     * @return {ImageData}
+     */
+    HTMLCanvasElement.prototype.getImageData = function() {
+        return this.getContext('2d').getImageData(0, 0, this.width, this.height);
+    };
+
+    /**
+     * @return {HTMLCanvasElement}
+     */
+    HTMLCanvasElement.prototype.putImageData = function(imageData) {
+        this.getContext('2d').putImageData(imageData, 0, 0);
+        return this;
+    };
+
+    /**
+     * @return {HTMLCanvasElement}
+     */
+    HTMLCanvasElement.prototype.scale = function(sx, sy) {
+        const i = this.getImageData();
+        const o = new ImageData(i.width * sx, i.height * sy);
+        for (let y = 0; y < o.height; y++) {
+            for (let x = 0; x < o.width; x++) {
+                const ix = (x / sx) | 0;
+                const iy = (y / sy) | 0;
+                const opos = (x + y * o.width) * 4;
+                const ipos = (ix + iy * i.width) * 4;
+                // noinspection PointlessArithmeticExpressionJS
+                o.data[opos + 0] = i.data[ipos + 0];
+                o.data[opos + 1] = i.data[ipos + 1];
+                o.data[opos + 2] = i.data[ipos + 2];
+                o.data[opos + 3] = i.data[ipos + 3];
+            }
+        }
+        return createCanvas(o.width, o.height).putImageData(o);
+    };
+
+    const canvas = document.getElementById("mycanvas");
+    const ctx = canvas.getContext('2d');
+    const image = document.getElementById("myimage");
+
+    image.src = 'goku_small_bg.png';
+    image.onload = () => {
+        println("ready");
+        const img = image.toCanvas().scale(2, 2);
+        //ImageUtils.scaleImageData(data)
+        ctx.drawImage(img, 0, 0);
+        //console.log(data);
+        //canvas.getImageData(0, 0, image.width)
+    };
+</script>
+</body>
+</html>
