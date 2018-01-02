@@ -31,6 +31,13 @@
         return canvas;
     }
 
+    ImageData.prototype.toCanvas = function () {
+        const out = createCanvas(this.width, this.height);
+        const ctx = out.getContext('2d')
+        ctx.putImageData(this, 0, 0);
+        return out;
+    };
+
     /**
      * @return {HTMLCanvasElement}
      */
@@ -42,11 +49,23 @@
         return canvas;
     };
 
+    HTMLImageElement.prototype.toBitmap32 = function () {
+        return this.toCanvas().toBitmap32();
+    };
+
     /**
      * @return {ImageData}
      */
     HTMLCanvasElement.prototype.getImageData = function () {
         return this.getContext('2d').getImageData(0, 0, this.width, this.height);
+    };
+
+    /**
+     * @return {Bitmap32}
+     */
+    HTMLCanvasElement.prototype.toBitmap32 = function () {
+        const imageData = this.getImageData();
+        return new Bitmap32(imageData.width, imageData.height, new Uint8Array(imageData.data.buffer));
     };
 
     /**
@@ -250,8 +269,9 @@
     }
 
     class Bitmap32 {
-        constructor(width, height) {
-            this.data = new Uint8Array(width * height * 4);
+        constructor(width, height, data = null) {
+            if (data == null) data = new Uint8Array(width * height * 4);
+            this.data = data;
             this.width = width;
             this.height = height;
             this.area = width * height;
@@ -259,14 +279,15 @@
 
         static fromFloat(width, height, floats) {
             const out = new Bitmap32(width, height);
+            const cdata = new Uint8ClampedArray(this.data.buffer);
             let m = 0;
             for (let y = 0; y < height; y++) {
                 for (let x = 0; x < width; x++) {
                     // noinspection PointlessArithmeticExpressionJS
-                    out.data[m + 0] = (clamp(floats[m + 0], 0, 1) * 255)|0;
-                    out.data[m + 1] = (clamp(floats[m + 1], 0, 1) * 255)|0;
-                    out.data[m + 2] = (clamp(floats[m + 2], 0, 1) * 255)|0;
-                    out.data[m + 3] = (clamp(floats[m + 3], 0, 1) * 255)|0;
+                    cdata[m + 0] = floats[m + 0] * 255;
+                    cdata[m + 1] = floats[m + 1] * 255;
+                    cdata[c + 2] = floats[m + 2] * 255;
+                    cdata[m + 3] = floats[m + 3] * 255;
                     m += 4;
                 }
             }
@@ -280,6 +301,14 @@
             return out;
         }
 
+        toImageData() {
+            return new ImageData(new Uint8ClampedArray(this.data.buffer), this.width, this.height);
+        }
+
+        toCanvas() {
+            return this.toImageData().toCanvas();
+        }
+
         index(x, y) {
             return (y * this.width + x) * 4;
         }
@@ -288,6 +317,9 @@
             return x >= 0 && y >= 0 && x < this.width && y < this.height;
         }
 
+        /**
+         * @return {Bitmap32}
+         */
         sliceCopy(left, top, right, bottom) {
             const width = right - left;
             const height = bottom - top;
@@ -408,6 +440,7 @@
         document.body.appendChild(webglCanvas);
 
         println("ready");
+        //const img = image.toCanvas().scale(2, 2).toBitmap32().sliceCopy(-7, -7, image.width * 2 + 7, image.height * 2 + 7).toCanvas();
         const img = image.toCanvas().scale(2, 2);
         //ImageUtils.scaleImageData(data)
         ctx.drawImage(img, 0, 0);
