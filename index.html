@@ -5,19 +5,21 @@
 </div>
 <style type="text/css">
     canvas, img {
-        image-rendering: optimizeSpeed;             /* Older versions of FF          */
-        image-rendering: -moz-crisp-edges;          /* FF 6.0+                       */
+        image-rendering: optimizeSpeed; /* Older versions of FF          */
+        image-rendering: -moz-crisp-edges; /* FF 6.0+                       */
         image-rendering: -webkit-optimize-contrast; /* Safari                        */
-        image-rendering: -o-crisp-edges;            /* OS X & Windows Opera (12.02+) */
-        image-rendering: pixelated;                 /* Awesome future-browsers       */
-        -ms-interpolation-mode: nearest-neighbor;   /* IE                            */
+        image-rendering: -o-crisp-edges; /* OS X & Windows Opera (12.02+) */
+        image-rendering: pixelated; /* Awesome future-browsers       */
+        -ms-interpolation-mode: nearest-neighbor; /* IE                            */
     }
 </style>
 <div>
-    <canvas id="mycanvas" width="512" height="512" style="border: 1px solid black;"/>
+    <canvas id="mycanvas" width="256" height="256" style="border: 1px solid black;"/>
 </div>
 <script type="text/javascript">
-    function println(msg) { console.log(msg); }
+    function println(msg) {
+        console.log(msg);
+    }
 
     /**
      * @return {HTMLCanvasElement}
@@ -32,7 +34,7 @@
     /**
      * @return {HTMLCanvasElement}
      */
-    HTMLImageElement.prototype.toCanvas = function() {
+    HTMLImageElement.prototype.toCanvas = function () {
         const image = this;
         const canvas = createCanvas(image.width, image.height);
         const ctx = canvas.getContext('2d');
@@ -43,14 +45,14 @@
     /**
      * @return {ImageData}
      */
-    HTMLCanvasElement.prototype.getImageData = function() {
+    HTMLCanvasElement.prototype.getImageData = function () {
         return this.getContext('2d').getImageData(0, 0, this.width, this.height);
     };
 
     /**
      * @return {HTMLCanvasElement}
      */
-    HTMLCanvasElement.prototype.putImageData = function(imageData) {
+    HTMLCanvasElement.prototype.putImageData = function (imageData) {
         this.getContext('2d').putImageData(imageData, 0, 0);
         return this;
     };
@@ -58,7 +60,7 @@
     /**
      * @return {HTMLCanvasElement}
      */
-    HTMLCanvasElement.prototype.scale = function(sx, sy) {
+    HTMLCanvasElement.prototype.scale = function (sx, sy) {
         const i = this.getImageData();
         const o = new ImageData(i.width * sx, i.height * sy);
         for (let y = 0; y < o.height; y++) {
@@ -77,12 +79,224 @@
         return createCanvas(o.width, o.height).putImageData(o);
     };
 
+    async function readJson(path) {
+        return await (await fetch(path)).json();
+    }
+
+    async function readText(path) {
+        return await (await fetch(path)).text();
+    }
+
+    class GlProgram {
+        /**
+         * @param {WebGLRenderingContext}gl
+         * @param {string} vertexSource
+         * @param {string} fragmentSource
+         */
+        constructor(gl, vertexSource, fragmentSource) {
+            this.gl = gl;
+            this.program = gl.createProgram();
+            this.fragment = this.createShader(gl.FRAGMENT_SHADER, fragmentSource);
+            this.vertex = this.createShader(gl.VERTEX_SHADER, vertexSource);
+            gl.linkProgram(this.program);
+            const result = gl.getProgramInfoLog(this.program);
+            if (result !== "") throw new Error(result);
+        }
+
+        createShader(type, source) {
+            const gl = this.gl;
+            const shader = gl.createShader(type);
+            gl.attachShader(this.program, shader);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            const result = gl.getShaderInfoLog(shader);
+            if (result !== "") throw new Error(result);
+            return shader;
+        }
+
+        use() {
+            this.gl.useProgram(this.program);
+        }
+
+        dispose() {
+            this.gl.deleteShader(this.fragment);
+            this.gl.deleteShader(this.vertex);
+            this.gl.deleteProgram(this.program);
+        }
+    }
+
+    class GlBuffer {
+        /**
+         * @param {WebGLRenderingContext}gl
+         */
+        constructor(gl) {
+            this.gl = gl;
+            this.type = gl.ARRAY_BUFFER;
+            this.buffer = gl.createBuffer();
+        }
+
+        use() {
+            this.gl.bindBuffer(this.type, this.buffer);
+            return this;
+        }
+
+        uploadFloats(data) {
+            this.use();
+            this.gl.bufferData(this.type, new Float32Array(data), this.gl.STATIC_DRAW);
+            return this;
+        }
+
+        dispose() {
+            this.gl.deleteBuffer(this.buffer);
+        }
+    }
+
+    class GlTexture2d {
+        /**
+         * @param {WebGLRenderingContext}gl
+         */
+        constructor(gl) {
+            this.gl = gl;
+            this.width = 0;
+            this.height = 0;
+            this.tex = gl.createTexture();
+        }
+
+        setRgbaData(width, height, data) {
+            const gl = this.gl;
+            this.width = width;
+            this.height = height;
+            gl.activeTexture(gl.TEXTURE7);
+            gl.bindTexture(gl.TEXTURE_2D, this.tex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+            return this;
+        }
+
+        setFloat4Data(width, height, data) {
+            const gl = this.gl;
+            gl.getExtension('OES_texture_float');
+            this.width = width;
+            this.height = height;
+            gl.activeTexture(gl.TEXTURE7);
+            gl.bindTexture(gl.TEXTURE_2D, this.tex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.FLOAT, data);
+            gl.bindTexture(gl.TEXTURE_2D, null);
+            return this;
+        }
+
+        setFloatData(width, height, data) {
+            const gl = this.gl;
+            gl.getExtension('OES_texture_float');
+            this.width = width;
+            this.height = height;
+            gl.activeTexture(gl.TEXTURE7);
+            gl.bindTexture(gl.TEXTURE_2D, this.tex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, width, height, 0, gl.LUMINANCE, gl.FLOAT, data);
+            return this;
+        }
+
+        bind(unit = 0) {
+            const gl = this.gl;
+            gl.activeTexture(gl.TEXTURE0 + unit);
+            gl.bindTexture(gl.TEXTURE_2D, this.tex);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.bindTexture(gl.TEXTURE_2D, this.tex);
+            return this;
+        }
+
+        dispose() {
+            this.gl.deleteTexture(this.tex);
+        }
+    }
+
+    class Bitmap32 {
+        constructor(width, height) {
+            this.data = new Uint8Array(width * height * 4);
+            this.width = width;
+            this.height = height;
+        }
+
+        index(x, y) {
+            return (y * this.width + x) * 4;
+        }
+
+        set(x, y, value) {
+            const i = this.index(x, y);
+            this.data[i + 3] = (value >> 24);
+            this.data[i + 2] = (value >> 16);
+            this.data[i + 1] = (value >> 8);
+            this.data[i + 0] = (value >> 0);
+        }
+
+        get(x, y) {
+            const i = this.index(x, y);
+            return (this.data[i + 3] << 24) |
+                (this.data[i + 2] << 16) |
+                (this.data[i + 1] << 8) |
+                (this.data[i + 0] << 0);
+        }
+    }
+
+    // document.createElement('canvas').getContext('webgl2').getSupportedExtensions()
     const canvas = document.getElementById("mycanvas");
     const ctx = canvas.getContext('2d');
     const image = document.getElementById("myimage");
 
     image.src = 'goku_small_bg.png';
-    image.onload = () => {
+
+    // https://gist.github.com/adrianseeley/f768fd7a3aab2370eafc
+    image.onload = async () => {
+        const model = await readJson('models/scale2.0x_model.json');
+        const vert = await readText('waifu2x.vert');
+        const frag = await readText('waifu2x.frag');
+
+        const webglCanvas = createCanvas(128, 128);
+        const gl = webglCanvas.getContext('webgl');
+        const program = new GlProgram(gl, vert, frag);
+        const vertexData = new GlBuffer(gl);
+        vertexData.uploadFloats([-1, -1, 1, -1, -1, 1, 1, 1]);
+
+        console.log(program.aVertexPosition);
+        //program.aVertexPosition  = gl.getAttribLocation(program, 'aVertexPosition');
+        //gl.enableVertexAttribArray();
+
+        //setInterval(function() {
+        gl.clearColor(1, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        //tex.setFloatData(2, 1, new Float32Array([1, 1, 1, 1, 0, 0, 0, 0]));
+
+        const bmp = new Bitmap32(128, 128);
+        for (let y = 0; y < 128; y++) {
+            for (let x = 0; x < 128; x++) {
+                bmp.set(x, y, 0xFFFFFF00 | (255 - x * 2));
+            }
+        }
+
+        console.log(bmp.data);
+        const tex = (new GlTexture2d(gl)).setRgbaData(bmp.width, bmp.height, bmp.data).bind(0);
+        const bias = new GlTexture2d(gl).setFloatData(6, 1, new Float32Array([0.0, 0.1, 0.5, 0.0, 0.4, 0.5])).bind(1);
+        vertexData.use();
+        program.use();
+        const aVertexPosition = gl.getAttribLocation(program.program, "aVertexPosition");
+        gl.uniform1i(gl.getUniformLocation(program.program, "tex0"), 0);
+        gl.uniform1i(gl.getUniformLocation(program.program, "bias"), 1);
+        gl.uniform2f(gl.getUniformLocation(program.program, "pixelScale"), 128, 128);
+        gl.uniform2f(gl.getUniformLocation(program.program, "tex0Scale"), tex.width, tex.height);
+        gl.uniform2f(gl.getUniformLocation(program.program, "biasScale"), bias.width, bias.height);
+
+        gl.enableVertexAttribArray(aVertexPosition);
+        gl.vertexAttribPointer(aVertexPosition, 2, gl.FLOAT, false, 0, 0);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        //}, 100);
+
+        document.body.appendChild(webglCanvas);
+
+        console.log(model);
+
         println("ready");
         const img = image.toCanvas().scale(2, 2);
         //ImageUtils.scaleImageData(data)
