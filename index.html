@@ -184,11 +184,12 @@
             return this;
         }
 
-        setFloatData(width, height, data) {
+        setFloatData(data, width = data.length % 2048, height = Math.ceil(data.length / 2048)) {
             const gl = this.gl;
             gl.getExtension('OES_texture_float');
             this.width = width;
             this.height = height;
+            this.data = data;
             gl.activeTexture(gl.TEXTURE7);
             gl.bindTexture(gl.TEXTURE_2D, this.tex);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, width, height, 0, gl.LUMINANCE, gl.FLOAT, data);
@@ -259,7 +260,28 @@
         const vertexData = new GlBuffer(gl);
         vertexData.uploadFloats([-1, -1, 1, -1, -1, 1, 1, 1]);
 
-        console.log(program.aVertexPosition);
+        const biases = model.map((v) => new GlTexture2d(gl).setFloatData(new Float32Array(v.bias)));
+        const kernels = model.map((v) => {
+            const vInputPlane = v.nInputPlane;
+            const vOutputPlane = v.nOutputPlane;
+            const out = new Float32Array(vInputPlane * vOutputPlane * 9);
+            let n = 0;
+            for (let i = 0; i < vOutputPlane; i++) {
+                const I = v.weight[i];
+                for (let j = 0; j < vInputPlane; j++) {
+                    const J = I[j];
+                    for (let y = 0; y < 3; y++) {
+                        const Y = J[y];
+                        for (let x = 0; x < 3; x++) {
+                            const X = Y[x];
+                            out[n++] = X;
+                        }
+                    }
+                }
+            }
+            return new GlTexture2d(gl).setFloatData(new Float32Array(out), vInputPlane * 3, vOutputPlane * 3)
+        });
+        console.log(kernels);
         //program.aVertexPosition  = gl.getAttribLocation(program, 'aVertexPosition');
         //gl.enableVertexAttribArray();
 
@@ -278,7 +300,7 @@
 
         console.log(bmp.data);
         const tex = (new GlTexture2d(gl)).setRgbaData(bmp.width, bmp.height, bmp.data).bind(0);
-        const bias = new GlTexture2d(gl).setFloatData(6, 1, new Float32Array([0.0, 0.1, 0.5, 0.0, 0.4, 0.5])).bind(1);
+        const bias = new GlTexture2d(gl).setFloatData(new Float32Array([0.0, 0.1, 0.5, 0.0, 0.4, 0.5])).bind(1);
         vertexData.use();
         program.use();
         const aVertexPosition = gl.getAttribLocation(program.program, "aVertexPosition");
@@ -291,6 +313,7 @@
         gl.enableVertexAttribArray(aVertexPosition);
         gl.vertexAttribPointer(aVertexPosition, 2, gl.FLOAT, false, 0, 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        window.gl = gl;
         //}, 100);
 
         document.body.appendChild(webglCanvas);
