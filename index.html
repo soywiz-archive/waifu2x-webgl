@@ -208,9 +208,45 @@
             return this;
         }
 
+        setEmptyFloat4(width, height) {
+            this.width = width;
+            this.height = height;
+            gl.activeTexture(gl.TEXTURE7);
+            gl.bindTexture(gl.TEXTURE_2D, this.tex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.FLOAT, null);
+            return this;
+        }
+
+        renderFloat4(width, height, callback) {
+            const gl = this.gl;
+            this.setEmptyFloat4(width, height);
+
+            const fb = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.tex, 0);
+            try {
+                callback(this)
+            } finally {
+                gl.deleteFramebuffer(fb)
+            }
+        }
+
         dispose() {
             this.gl.deleteTexture(this.tex);
         }
+    }
+
+    function clamp(v, min, max) {
+        if (v < min) return min;
+        if (v > max) return max;
+        return v;
+    }
+
+    function packRGBA(r, g, b, a) {
+        return ((r & 0xFF) << 0) |
+        ((g & 0xFF) << 8) |
+        ((b & 0xFF) << 16) |
+        ((a & 0xFF) << 24);
     }
 
     class Bitmap32 {
@@ -218,10 +254,52 @@
             this.data = new Uint8Array(width * height * 4);
             this.width = width;
             this.height = height;
+            this.area = width * height;
+        }
+
+        static fromFloat(width, height, floats) {
+            const out = new Bitmap32(width, height);
+            let m = 0;
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    // noinspection PointlessArithmeticExpressionJS
+                    out.data[m + 0] = (clamp(floats[m + 0], 0, 1) * 255)|0;
+                    out.data[m + 1] = (clamp(floats[m + 1], 0, 1) * 255)|0;
+                    out.data[m + 2] = (clamp(floats[m + 2], 0, 1) * 255)|0;
+                    out.data[m + 3] = (clamp(floats[m + 3], 0, 1) * 255)|0;
+                    m += 4;
+                }
+            }
+            return out;
+        }
+
+        toFloat() {
+            const area = this.area;
+            const out = new Float32Array(this.width * this.height * 4);
+            for (let n = 0; n < area; n++) out[n] = this.data[n] / 255;
+            return out;
         }
 
         index(x, y) {
             return (y * this.width + x) * 4;
+        }
+
+        valid(x, y) {
+            return x >= 0 && y >= 0 && x < this.width && y < this.height;
+        }
+
+        sliceCopy(left, top, right, bottom) {
+            const width = right - left;
+            const height = bottom - top;
+            const out = new Bitmap32(width, height);
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const ix = x + left;
+                    const iy = y + left;
+                    out.set(x, y, this.valid(ix, iy) ? this.get(ix, iy) : 0)
+                }
+            }
+            return out;
         }
 
         set(x, y, value) {
@@ -251,11 +329,13 @@
     // https://gist.github.com/adrianseeley/f768fd7a3aab2370eafc
     image.onload = async () => {
         const model = await readJson('models/scale2.0x_model.json');
+        //console.log(model);
         const vert = await readText('waifu2x.vert');
         const frag = await readText('waifu2x.frag');
 
         const webglCanvas = createCanvas(128, 128);
         const gl = webglCanvas.getContext('webgl');
+        window.gl = gl;
         const program = new GlProgram(gl, vert, frag);
         const vertexData = new GlBuffer(gl);
         vertexData.uploadFloats([-1, -1, 1, -1, -1, 1, 1, 1]);
@@ -298,27 +378,34 @@
             }
         }
 
-        console.log(bmp.data);
-        const tex = (new GlTexture2d(gl)).setRgbaData(bmp.width, bmp.height, bmp.data).bind(0);
-        const bias = new GlTexture2d(gl).setFloatData(new Float32Array([0.0, 0.1, 0.5, 0.0, 0.4, 0.5])).bind(1);
-        vertexData.use();
-        program.use();
-        const aVertexPosition = gl.getAttribLocation(program.program, "aVertexPosition");
-        gl.uniform1i(gl.getUniformLocation(program.program, "tex0"), 0);
-        gl.uniform1i(gl.getUniformLocation(program.program, "bias"), 1);
-        gl.uniform2f(gl.getUniformLocation(program.program, "pixelScale"), 128, 128);
-        gl.uniform2f(gl.getUniformLocation(program.program, "tex0Scale"), tex.width, tex.height);
-        gl.uniform2f(gl.getUniformLocation(program.program, "biasScale"), bias.width, bias.height);
+        const rb = new GlTexture2d(gl);
+        rb.renderFloat4(128, 128, function(rtex) {
+            console.log(bmp.data);
+            const tex = (new GlTexture2d(gl)).setRgbaData(bmp.width, bmp.height, bmp.data).bind(0);
+            const bias = new GlTexture2d(gl).setFloatData(new Float32Array([0.0, 0.1, 0.5, 0.0, 0.4, 0.5])).bind(1);
+            vertexData.use();
+            program.use();
+            const aVertexPosition = gl.getAttribLocation(program.program, "aVertexPosition");
+            gl.uniform1i(gl.getUniformLocation(program.program, "tex0"), 0);
+            gl.uniform1i(gl.getUniformLocation(program.program, "bias"), 1);
+            gl.uniform2f(gl.getUniformLocation(program.program, "pixelScale"), 128, 128);
+            gl.uniform2f(gl.getUniformLocation(program.program, "tex0Scale"), tex.width, tex.height);
+            gl.uniform2f(gl.getUniformLocation(program.program, "biasScale"), bias.width, bias.height);
 
-        gl.enableVertexAttribArray(aVertexPosition);
-        gl.vertexAttribPointer(aVertexPosition, 2, gl.FLOAT, false, 0, 0);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-        window.gl = gl;
+            gl.enableVertexAttribArray(aVertexPosition);
+            gl.vertexAttribPointer(aVertexPosition, 2, gl.FLOAT, false, 0, 0);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+            const out = new Float32Array(128 * 128 * 4);
+            gl.readPixels(0, 0, 128, 128, gl.RGBA, gl.FLOAT, out);
+            console.log('-------');
+            console.log(`${rtex.width}x${rtex.height}`);
+            console.log(out);
+        });
+
         //}, 100);
 
         document.body.appendChild(webglCanvas);
-
-        console.log(model);
 
         println("ready");
         const img = image.toCanvas().scale(2, 2);
