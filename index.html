@@ -120,8 +120,7 @@
             this.fragment = this.createShader(gl.FRAGMENT_SHADER, fragmentSource);
             this.vertex = this.createShader(gl.VERTEX_SHADER, vertexSource);
             gl.linkProgram(this.program);
-            const result = gl.getProgramInfoLog(this.program);
-            if (result !== "") throw new Error(result);
+            if (!gl.getProgramParameter(this.program, gl.LINK_STATUS) ) throw new Error(gl.getProgramInfoLog(this.program));
         }
 
         createShader(type, source) {
@@ -130,8 +129,7 @@
             gl.attachShader(this.program, shader);
             gl.shaderSource(shader, source);
             gl.compileShader(shader);
-            const result = gl.getShaderInfoLog(shader);
-            if (result !== "") throw new Error(result);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader));
             return shader;
         }
 
@@ -209,7 +207,6 @@
 
         setFloat4Data(width, height, data) {
             const gl = this.gl;
-            gl.getExtension('OES_texture_float');
             this.width = width;
             this.height = height;
             this.data = data;
@@ -222,7 +219,6 @@
 
         setFloatData(data, width = data.length % 2048, height = Math.ceil(data.length / 2048)) {
             const gl = this.gl;
-            gl.getExtension('OES_texture_float');
             this.width = width;
             this.height = height;
             this.data = data;
@@ -600,19 +596,8 @@
 
                     if (step === 6) {
                         gl.readPixels(0, 0, outWidth, outHeight, gl.RGBA, gl.FLOAT, out);
-                        //console.log(`${rb.width}x${rb.height}`);
-                        //console.log("+++++");
-                        //console.log(Array.from(bias.data));
-                        //console.log(Array.from(kernel.data));
-                        //console.log("-----");
-                        //console.log(inp.data[0], inp.data[1], inp.data[2], inp.data[3]);
-                        //console.log(rout);
                     }
                 });
-
-                //const stepCanvas = Bitmap32.fromFloat(outWidth, outHeight, rout.normalized().alphaTo1()).toCanvas()
-                //stepCanvas.style.border = '1px solid blue';
-                //document.body.appendChild(stepCanvas);
 
                 inp.dispose();
                 inp = outp;
@@ -643,6 +628,10 @@
             const webglCanvas = createCanvas(32, 32);
             const gl = webglCanvas.getContext('webgl');
             window.gl = gl;
+
+            gl.getExtension("WEBGL_color_buffer_float")
+            gl.getExtension('OES_texture_float');
+
             this.programs = this.steps.map((v) => {
                 return new GlProgram(gl, `const int NUM_INPUTS = ${v.nInputPlane};${vert}`, `const int NUM_INPUTS = ${v.nInputPlane};${frag}`);
             });
@@ -656,7 +645,6 @@
                 const height = vOutputPlane * 3;
 
                 const out = new Float32Array(width * height);
-                let n = 0;
                 for (let i = 0; i < vOutputPlane; i++) {
                     const I = v.weight[i];
 
@@ -687,7 +675,7 @@
     }
 
     async function sleep(ms) {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             setTimeout(() => { resolve(); }, ms);
         });
     }

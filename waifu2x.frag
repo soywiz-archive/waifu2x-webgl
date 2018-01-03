@@ -11,8 +11,6 @@ uniform vec2 biasScale;
 uniform sampler2D kernel;
 uniform vec2 kernelScale;
 
-// BIAS/KERNEL/INPUT get element data
-
 float getBias(int index) {
     return texture2D(bias, vec2(float(index) / biasScale.x, 0)).r;
 }
@@ -23,30 +21,6 @@ float getKernelFloat(int x, int y) {
 
 vec4 getInputTexel(int x, int y) {
     return texture2D(inp, vec2(x, y) / inpScale);
-}
-
-// MATRICES:
-
-vec3 getKernelRow(int x, int y) {
-    return vec3(getKernelFloat(x, y), getKernelFloat(x + 1, y), getKernelFloat(x + 2, y));
-}
-
-mat3 getKernel(int nIn, int nOut) {
-    return mat3(
-        getKernelRow(nIn * 3, (nOut * 3) + 0),
-        getKernelRow(nIn * 3, (nOut * 3) + 1),
-        getKernelRow(nIn * 3, (nOut * 3) + 2)
-    );
-}
-
-// INPUT
-
-#define getInputFloat(c, x, y) getInputTexel(x, y)[c]
-#define getInputRow(c, x, y) vec3(getInputFloat(c, x - 1, y), getInputFloat(c, x, y), getInputFloat(c, x + 1, y))
-#define getInput(c, x, y) mat3(getInputRow(c, x, y - 1), getInputRow(c, x, y), getInputRow(c, x, y + 1))
-
-float cwiseDot(mat3 a, mat3 b) {
-    return dot(a[0], b[0]) + dot(a[1], b[1]) + dot(a[2], b[2]);
 }
 
 void main(void) {
@@ -63,10 +37,32 @@ void main(void) {
         int x = pos.x + (blockColumn * 128);
         int y = pos.y + (blockRow * 128);
 
-        mat3 krn = getKernel(nIn, nOut);
-        for (int c = 0; c < 4; c++) {
-            acc[c] += cwiseDot(getInput(c, x, y), krn);
-        }
+        int nIn3 = nIn * 3;
+        int nOut3 = nOut * 3;
+
+        float ma = getKernelFloat(nIn3 + 0, nOut3 + 0);
+        float mb = getKernelFloat(nIn3 + 1, nOut3 + 0);
+        float mc = getKernelFloat(nIn3 + 2, nOut3 + 0);
+
+        float md = getKernelFloat(nIn3 + 0, nOut3 + 1);
+        float me = getKernelFloat(nIn3 + 1, nOut3 + 1);
+        float mf = getKernelFloat(nIn3 + 2, nOut3 + 1);
+
+        float mg = getKernelFloat(nIn3 + 0, nOut3 + 2);
+        float mh = getKernelFloat(nIn3 + 1, nOut3 + 2);
+        float mi = getKernelFloat(nIn3 + 2, nOut3 + 2);
+
+        vec4 a = getInputTexel(x - 1, y - 1);
+        vec4 b = getInputTexel(x, y - 1);
+        vec4 c = getInputTexel(x + 1, y - 1);
+        vec4 d = getInputTexel(x - 1, y);
+        vec4 e = getInputTexel(x, y);
+        vec4 f = getInputTexel(x + 1, y);
+        vec4 g = getInputTexel(x - 1, y + 1);
+        vec4 h = getInputTexel(x, y + 1);
+        vec4 i = getInputTexel(x + 1, y + 1);
+
+        acc += (a * ma) + (b * mb) + (c * mc) + (d * md) + (e * me) + (f * mf) + (g * mg) + (h * mh) + (i * mi);
     }
 
     gl_FragColor = acc - ((0.9 * min(acc, vec4(0))));
