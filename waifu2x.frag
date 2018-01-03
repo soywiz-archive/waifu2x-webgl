@@ -66,9 +66,13 @@ void main(void) {
         int x = pos.x + (blockColumn * 128);
         int y = pos.y + (blockRow * 128);
 
-        //acc += sumMat(cwiseMul(getInput(x, y, z), getKernel(x, y, i)));
-        mat3 krn = getKernel(nIn, nOut);
+        //for (int my = 0; my < 3; my++) {
+        //    for (int mx = 0; mx < 3; mx++) {
+        //        acc += getInputTexel(x + mx, y + my) * vec4(getKernelFloat(nIn * 3 + mx, nOut * 3 + my));
+        //    }
+        //}
 
+        mat3 krn = getKernel(nIn, nOut);
         for (int c = 0; c < 4; c++) {
             acc[c] += cwiseDot(getInput(c, x, y), krn);
         }
@@ -77,6 +81,7 @@ void main(void) {
     //gl_FragColor = max(acc, vec4(0)) + 0.1 * min(acc, vec4(0));
 
     gl_FragColor = acc - ((0.9 * min(acc, vec4(0))));
+    //gl_FragColor.gba = vec3(gl_FragColor.r);
     //gl_FragColor = max(acc, vec4(0)) + 0.1 * min(acc, vec4(0));
 
     //gl_FragColor = vec4(getBias(nOut), 0, 0, 0);

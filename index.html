@@ -451,24 +451,39 @@
         const kernels = steps.map((v) => {
             const vInputPlane = v.nInputPlane;
             const vOutputPlane = v.nOutputPlane;
-            const out = new Float32Array(vInputPlane * vOutputPlane * 9);
+
+            const width = vInputPlane * 3;
+            const height = vOutputPlane * 3;
+
+            const out = new Float32Array(width * height);
             let n = 0;
             for (let i = 0; i < vOutputPlane; i++) {
                 const I = v.weight[i];
+
+                const mY = i * 3;
+
                 for (let j = 0; j < vInputPlane; j++) {
                     const J = I[j];
+
+                    const mX = j * 3;
+
                     for (let y = 0; y < 3; y++) {
                         const Y = J[y];
                         for (let x = 0; x < 3; x++) {
-                            const X = Y[x];
-                            out[n++] = X;
+                            const vv = Y[x];
+                            const px = mX + x;
+                            const py = mY + y;
+
+                            out[py * width + px] = vv;
                         }
                     }
                 }
             }
             return new GlTexture2d(gl).setFloatData(new Float32Array(out), vInputPlane * 3, vOutputPlane * 3)
         });
-        console.log(kernels);
+
+        //console.log('' + kernels[0].data);
+        //console.log(kernels);
         //program.aVertexPosition  = gl.getAttribLocation(program, 'aVertexPosition');
         //gl.enableVertexAttribArray();
 
@@ -479,7 +494,6 @@
         //tex.setFloatData(2, 1, new Float32Array([1, 1, 1, 1, 0, 0, 0, 0]));
 
         const img2x = image.toCanvas().scale(2, 2).toBitmap32().sliceCopy(-7, -7, 114 + 7, 114 + 7);
-        const start = Date.now();
         ctx.drawImage(img2x.toCanvas(), 0, 0);
         //const out = new Float32Array(128 * 128 * 4);
 
@@ -495,6 +509,7 @@
         console.log(sum);
         console.log(inp.data);
         */
+        const start = Date.now();
         for (let step = 0; step < 7; step++) {
             const bias = biases[step];
             const kernel = kernels[step];
@@ -536,7 +551,7 @@
                     let blockX = Math.floor(n % 16);
                     let blockY = Math.floor(n / 16);
                     //console.log(blockX, blockY);
-                    bb.addQuad(blockX * 128, blockY * 128, 128 - step * 2, 128 - step * 2, n);
+                    bb.addQuad(blockX * 128, blockY * 128, 128 - step, 128 - step, n);
                     //bb.addQuad(blockX * 128, blockY * 128, 128, 128, n);
                 }
                 //bb.addQuad(0, 0, 128, 128, 0);
@@ -558,7 +573,7 @@
                 elements.dispose();
                 vertexData.dispose();
 
-                //if (step === 6) {
+                if (step === 6) {
                     gl.readPixels(0, 0, outWidth, outHeight, gl.RGBA, gl.FLOAT, rout);
                     //console.log(`${rb.width}x${rb.height}`);
                     //console.log("+++++");
@@ -568,12 +583,12 @@
                     //console.log(inp.data[0], inp.data[1], inp.data[2], inp.data[3]);
                     console.log(rout);
                     out = rout;
-                //}
+                }
             });
 
-            const stepCanvas = Bitmap32.fromFloat(outWidth, outHeight, rout.normalized().alphaTo1()).toCanvas()
-            stepCanvas.style.border = '1px solid blue';
-            document.body.appendChild(stepCanvas);
+            //const stepCanvas = Bitmap32.fromFloat(outWidth, outHeight, rout.normalized().alphaTo1()).toCanvas()
+            //stepCanvas.style.border = '1px solid blue';
+            //document.body.appendChild(stepCanvas);
 
             inp.dispose();
             inp = outp;
@@ -584,7 +599,7 @@
 
 
 
-        const resultCanvas = Bitmap32.fromFloat(114, 114, out.alphaTo1()).toCanvas();
+        const resultCanvas = Bitmap32.fromFloat(128, 128, out.alphaTo1()).sliceCopy(7, 7, 114 + 7, 114 + 7).toCanvas();
         resultCanvas.style.border = '1px solid green';
         document.body.appendChild(resultCanvas);
 
