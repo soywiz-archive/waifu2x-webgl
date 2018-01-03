@@ -51,31 +51,17 @@ float cwiseDot(mat3 a, mat3 b) {
 
 void main(void) {
     ivec3 pos = ivec3(vVertexPosition.xyz);
-    //vec4 v = texture2D(tex0, vec2(pos.x / tex0Scale.x, 0));
 
     int nOut = pos.z;
-
-    //const int NUM_INPUTS = 128;
 
     vec4 acc = vec4(getBias(nOut));
 
     for (int nIn = 0; nIn < NUM_INPUTS; nIn++) {
         int blockColumn = int(mod(float(nIn), 16.0));
         int blockRow = int(floor(float(nIn) / 16.0));
-        //int blockColumn = 0;
-        //int blockRow = 0;
 
         int x = pos.x + (blockColumn * 128);
         int y = pos.y + (blockRow * 128);
-
-        //mat3 krn = getKernel(nIn, nOut);
-
-        //for (int my = 0; my < 3; my++) {
-        //    for (int mx = 0; mx < 3; mx++) {
-        //        //acc += getInputTexel(x + mx, y + my) * vec4(getKernelFloat(nIn * 3 + mx, nOut * 3 + my));
-        //        acc += getInputTexel(x + mx, y + my) * vec4(krn[mx][my//]);
-        //    }
-        //}
 
         mat3 krn = getKernel(nIn, nOut);
         for (int c = 0; c < 4; c++) {
@@ -83,16 +69,5 @@ void main(void) {
         }
     }
 
-    //gl_FragColor = max(acc, vec4(0)) + 0.1 * min(acc, vec4(0));
-
     gl_FragColor = acc - ((0.9 * min(acc, vec4(0))));
-    //gl_FragColor.gba = vec3(gl_FragColor.r);
-    //gl_FragColor = max(acc, vec4(0)) + 0.1 * min(acc, vec4(0));
-
-    //gl_FragColor = vec4(getBias(nOut), 0, 0, 0);
-    //gl_FragColor = vec4(getKernelFloat(0, 0), 0, 0, 0);
-    //gl_FragColor = getInputTexel(0, 0);
-    //gl_FragColor = vec4(0, 0, 0, 0);
-    //gl_FragColor.r = float(z);
-    //gl_FragColor.r = mod(float(int(15.2)), 10.0);
 }
