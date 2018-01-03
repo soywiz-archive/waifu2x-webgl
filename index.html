@@ -159,6 +159,9 @@
             return this;
         }
 
+        /**
+         * @return {GlBuffer}
+         */
         uploadFloats(data) {
             this.use();
             this.gl.bufferData(this.type, new Float32Array(data), this.gl.STATIC_DRAW);
@@ -263,9 +266,9 @@
 
     function packRGBA(r, g, b, a) {
         return ((r & 0xFF) << 0) |
-        ((g & 0xFF) << 8) |
-        ((b & 0xFF) << 16) |
-        ((a & 0xFF) << 24);
+            ((g & 0xFF) << 8) |
+            ((b & 0xFF) << 16) |
+            ((a & 0xFF) << 24);
     }
 
     class Bitmap32 {
@@ -368,9 +371,7 @@
         const webglCanvas = createCanvas(128, 128);
         const gl = webglCanvas.getContext('webgl');
         window.gl = gl;
-        const program = new GlProgram(gl, vert, frag);
-        const vertexData = new GlBuffer(gl);
-        vertexData.uploadFloats([-1, -1, 1, -1, -1, 1, 1, 1]);
+        const programs = model.map((v) => { return new GlProgram(gl, `const int NUM_INPUTS = ${v.nInputPlane};${vert}`, `const int NUM_INPUTS = ${v.nInputPlane};${frag}`); });
 
         const biases = model.map((v) => new GlTexture2d(gl).setFloatData(new Float32Array(v.bias)));
         const kernels = model.map((v) => {
@@ -410,28 +411,53 @@
             }
         }
 
+        const img2x = image.toCanvas().scale(2, 2).toBitmap32();
+        const inp = new GlTexture2d(gl).setFloat4Data(img2x.width, img2x.height, img2x.toFloat());
+
         const rb = new GlTexture2d(gl);
-        rb.renderFloat4(128, 128, function(rtex) {
+        rb.renderFloat4(128, 128, function (rb) {
+
             console.log(bmp.data);
             const tex = (new GlTexture2d(gl)).setRgbaData(bmp.width, bmp.height, bmp.data).bind(0);
-            const bias = new GlTexture2d(gl).setFloatData(new Float32Array([0.0, 0.1, 0.5, 0.0, 0.4, 0.5])).bind(1);
-            vertexData.use();
+            //const bias = new GlTexture2d(gl).setFloatData(new Float32Array([0.0, 0.1, 0.5, 0.0, 0.4, 0.5])).bind(1);
+
+            const bias = biases[0].bind(0);
+            const kernel = kernels[0].bind(1);
+            const program = programs[0];
+
             program.use();
-            const aVertexPosition = gl.getAttribLocation(program.program, "aVertexPosition");
-            gl.uniform1i(gl.getUniformLocation(program.program, "tex0"), 0);
-            gl.uniform1i(gl.getUniformLocation(program.program, "bias"), 1);
-            gl.uniform2f(gl.getUniformLocation(program.program, "pixelScale"), 128, 128);
-            gl.uniform2f(gl.getUniformLocation(program.program, "tex0Scale"), tex.width, tex.height);
+
+            const aVertexPosition = gl.getAttribLocation(program.program, "aPos");
+            gl.uniform2f(gl.getUniformLocation(program.program, "pixelScale"), rb.width, rb.height);
+
+            gl.uniform1i(gl.getUniformLocation(program.program, "bias"), 0);
             gl.uniform2f(gl.getUniformLocation(program.program, "biasScale"), bias.width, bias.height);
 
+            gl.uniform1i(gl.getUniformLocation(program.program, "kernels"), 1);
+            gl.uniform2f(gl.getUniformLocation(program.program, "kernelScale"), kernel.width, kernel.height);
+
+            gl.uniform1i(gl.getUniformLocation(program.program, "inp"), 3);
+            gl.uniform2f(gl.getUniformLocation(program.program, "inpScale"), inp.width, inp.height);
+
+
+            const vertexData = (new GlBuffer(gl)).uploadFloats([
+                0, 0, 0,
+                128, 0, 0,
+                0, 128, 0,
+                128, 128, 0
+            ]);
+            vertexData.use();
+
             gl.enableVertexAttribArray(aVertexPosition);
-            gl.vertexAttribPointer(aVertexPosition, 2, gl.FLOAT, false, 0, 0);
+            gl.vertexAttribPointer(aVertexPosition, 3, gl.FLOAT, false, 0, 0);
+
             gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+            vertexData.dispose();
 
             const out = new Float32Array(128 * 128 * 4);
             gl.readPixels(0, 0, 128, 128, gl.RGBA, gl.FLOAT, out);
             console.log('-------');
-            console.log(`${rtex.width}x${rtex.height}`);
+            console.log(`${rb.width}x${rb.height}`);
             console.log(out);
         });
 
@@ -441,9 +467,8 @@
 
         println("ready");
         //const img = image.toCanvas().scale(2, 2).toBitmap32().sliceCopy(-7, -7, image.width * 2 + 7, image.height * 2 + 7).toCanvas();
-        const img = image.toCanvas().scale(2, 2);
         //ImageUtils.scaleImageData(data)
-        ctx.drawImage(img, 0, 0);
+        ctx.drawImage(img2x.toCanvas(), 0, 0);
         //console.log(data);
         //canvas.getImageData(0, 0, image.width)
     };
