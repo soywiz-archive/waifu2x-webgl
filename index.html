@@ -198,6 +198,7 @@
             const gl = this.gl;
             this.width = width;
             this.height = height;
+            this.data = data;
             gl.activeTexture(gl.TEXTURE7);
             gl.bindTexture(gl.TEXTURE_2D, this.tex);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
@@ -209,6 +210,7 @@
             gl.getExtension('OES_texture_float');
             this.width = width;
             this.height = height;
+            this.data = data;
             gl.activeTexture(gl.TEXTURE7);
             gl.bindTexture(gl.TEXTURE_2D, this.tex);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.FLOAT, data);
@@ -228,6 +230,16 @@
             return this;
         }
 
+        setEmptyFloat4(width, height) {
+            this.width = width;
+            this.height = height;
+            this.data = null;
+            gl.activeTexture(gl.TEXTURE7);
+            gl.bindTexture(gl.TEXTURE_2D, this.tex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.FLOAT, null);
+            return this;
+        }
+
         bind(unit = 0) {
             const gl = this.gl;
             gl.activeTexture(gl.TEXTURE0 + unit);
@@ -237,15 +249,6 @@
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
             gl.bindTexture(gl.TEXTURE_2D, this.tex);
-            return this;
-        }
-
-        setEmptyFloat4(width, height) {
-            this.width = width;
-            this.height = height;
-            gl.activeTexture(gl.TEXTURE7);
-            gl.bindTexture(gl.TEXTURE_2D, this.tex);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.FLOAT, null);
             return this;
         }
 
@@ -368,6 +371,7 @@
         constructor() {
             this.vertices = [];
             this.indices = [];
+            this.npoints = 0;
         }
 
         addPoint(x, y, vx, vy, noutput) {
@@ -376,10 +380,11 @@
             this.vertices.push(vx);
             this.vertices.push(vy);
             this.vertices.push(noutput);
+            this.npoints++;
         }
 
         addQuad(x, y, width, height, noutput) {
-            const vpos = this.vertices.length;
+            const vpos = this.npoints;
 
             this.addPoint(x, y, 0, 0, noutput);
             this.addPoint(x + width, y, width, 0, noutput);
@@ -447,21 +452,32 @@
 
         const img2x = image.toCanvas().scale(2, 2).toBitmap32().sliceCopy(-7, -7, 128 + 7, 128 + 7);
         const start = Date.now();
+        const out = new Float32Array(128 * 128 * 4);
+
+        let inp = new GlTexture2d(gl).setFloat4Data(img2x.width, img2x.height, img2x.toFloat());
+
+        /*
+        let sum = 0;
+        for (let n = 0; n < inp.data.length; n++) {
+            sum += inp.data[n];
+        }
+        console.log(sum);
+        console.log(inp.data);
+        */
         for (let step = 0; step < 7; step++) {
-            const bias = biases[step].bind(0);
-            const kernel = kernels[step].bind(1);
+            const bias = biases[step];
+            const kernel = kernels[step];
             const program = programs[step];
             const nInputPlane = steps[step].nInputPlane;
             const nOutputPlane = steps[step].nOutputPlane;
 
-            let inp = new GlTexture2d(gl).setFloat4Data(img2x.width, img2x.height, img2x.toFloat());
-            let outp = new GlTexture2d(gl);
 
             const outXBlocks = Math.min(nOutputPlane, 16);
             const outYBlocks = Math.ceil(nOutputPlane / 16);
 
             console.log(`nInputPlane=${nInputPlane}, nOutputPlane=${nOutputPlane}, outXBlocks=${outXBlocks}, outYBlocks=${outYBlocks}`);
 
+            let outp = new GlTexture2d(gl);
             outp.renderFloat4(outXBlocks * 128, outYBlocks * 128, function (rb) {
                 program.use();
 
@@ -469,19 +485,23 @@
                 const aInPos = gl.getAttribLocation(program.program, "aInPos");
                 gl.uniform2f(gl.getUniformLocation(program.program, "pixelScale"), rb.width, rb.height);
 
+                bias.bind(0);
                 gl.uniform1i(gl.getUniformLocation(program.program, "bias"), 0);
                 gl.uniform2f(gl.getUniformLocation(program.program, "biasScale"), bias.width, bias.height);
 
+                kernel.bind(1);
                 gl.uniform1i(gl.getUniformLocation(program.program, "kernels"), 1);
                 gl.uniform2f(gl.getUniformLocation(program.program, "kernelScale"), kernel.width, kernel.height);
 
-                gl.uniform1i(gl.getUniformLocation(program.program, "inp"), 3);
+                inp.bind(2);
+                gl.uniform1i(gl.getUniformLocation(program.program, "inp"), 2);
                 gl.uniform2f(gl.getUniformLocation(program.program, "inpScale"), inp.width, inp.height);
 
                 const bb = new BatchBuilder();
                 for (let n = 0; n < nOutputPlane; n++) {
                     let blockX = Math.floor(n % 16);
                     let blockY = Math.floor(n / 16);
+                    //bb.addQuad(blockX * 128, blockY * 128, 128 - step * 2, 128 - step * 2, n);
                     bb.addQuad(blockX * 128, blockY * 128, 128, 128, n);
                 }
 
@@ -494,15 +514,19 @@
                 gl.vertexAttribPointer(aInPos, 3, gl.FLOAT, false, 4 * 5, 4 * 2);
 
                 //gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-                gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+                //console.log(bb.indices);
+                //console.log(bb.indices.length);
+                gl.drawElements(gl.TRIANGLES, bb.indices.length, gl.UNSIGNED_SHORT, 0);
+                //console.log(gl.getError());
 
                 elements.dispose();
                 vertexData.dispose();
 
-                const out = new Float32Array(128 * 128 * 4);
-                gl.readPixels(0, 0, 128, 128, gl.RGBA, gl.FLOAT, out);
-                console.log(`${rb.width}x${rb.height}`);
-                console.log(out);
+                //if (step === 6) {
+                    gl.readPixels(0, 0, 128, 128, gl.RGBA, gl.FLOAT, out);
+                    console.log(`${rb.width}x${rb.height}`);
+                    console.log(out);
+                //}
             });
             inp.dispose();
             inp = outp;

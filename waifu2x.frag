@@ -46,7 +46,6 @@ float cwiseDot(mat3 a, mat3 b) {
 void main(void) {
     ivec3 pos = ivec3(vVertexPosition.xyz);
     //vec4 v = texture2D(tex0, vec2(pos.x / tex0Scale.x, 0));
-    vec4 acc = vec4(getBias(pos.x));
 
     int nOut = pos.z;
 
@@ -58,6 +57,8 @@ void main(void) {
 
     //const int NUM_INPUTS = 128;
 
+    vec4 acc = vec4(getBias(pos.x));
+
     for (int nIn = 0; nIn < NUM_INPUTS; nIn++) {
         //acc += sumMat(cwiseMul(getInput(x, y, z), getKernel(x, y, i)));
         mat3 krn = getKernel(nIn, nOut);
@@ -68,6 +69,8 @@ void main(void) {
     }
 
     gl_FragColor = acc.rgba;
+    //gl_FragColor = getInputTexel(0, 0);
+    //gl_FragColor = vec4(0, 0, 0, 0);
     //gl_FragColor.r = float(z);
     //gl_FragColor.r = mod(float(int(15.2)), 10.0);
 }
