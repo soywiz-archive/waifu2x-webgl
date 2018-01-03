@@ -530,7 +530,7 @@
     class Waifu2x {
         waifu2x(chunk) {
             const chunkY = chunk.rgbaToYCbCr();
-            let out = new Float32Array(128 * 128 * 4);
+            let out = new Float32Array(this.blockSize * this.blockSize * 4);
             let inp = new GlTexture2d(gl).setFloat4Data(chunkY.width, chunkY.height, chunkY.toFloat());
 
             for (let step = 0; step < 7; step++) {
@@ -542,13 +542,13 @@
                 const outXBlocks = Math.min(nOutputPlane, 16);
                 const outYBlocks = Math.ceil(nOutputPlane / 16);
 
-                console.log(`nInputPlane=${nInputPlane}, nOutputPlane=${nOutputPlane}, outXBlocks=${outXBlocks}, outYBlocks=${outYBlocks}`);
+                //console.log(`nInputPlane=${nInputPlane}, nOutputPlane=${nOutputPlane}, outXBlocks=${outXBlocks}, outYBlocks=${outYBlocks}`);
 
                 let outp = new GlTexture2d(gl);
-                const outWidth = outXBlocks * 128;
-                const outHeight = outYBlocks * 128;
+                const outWidth = outXBlocks * this.blockSize;
+                const outHeight = outYBlocks * this.blockSize;
                 //const rout = new Float32Array(outWidth * outHeight * 4);
-                outp.renderFloat4(outWidth, outHeight, function (rb) {
+                outp.renderFloat4(outWidth, outHeight, (rb) => {
                     program.use();
 
                     const aPos = gl.getAttribLocation(program.program, "aPos");
@@ -572,10 +572,8 @@
                         let blockX = Math.floor(n % 16);
                         let blockY = Math.floor(n / 16);
                         //console.log(blockX, blockY);
-                        bb.addQuad(blockX * 128, blockY * 128, 128 - step, 128 - step, n);
-                        //bb.addQuad(blockX * 128, blockY * 128, 128, 128, n);
+                        bb.addQuad(blockX * this.blockSize, blockY * this.blockSize, chunkY.width - step, chunkY.height - step, n);
                     }
-                    //bb.addQuad(0, 0, 128, 128, 0);
 
                     const vertexData = (new GlBuffer(gl, gl.ARRAY_BUFFER)).uploadFloats(bb.vertices).use();
                     const elements = (new GlBuffer(gl, gl.ELEMENT_ARRAY_BUFFER)).uploadShorts(bb.indices).use();
@@ -604,7 +602,7 @@
             }
             inp.dispose();
 
-            return Bitmap32.fromFloat(128, 128, out.alphaTo1()).sliceCopy(7, 7, 114 + 7, 114 + 7).yCbCrToRgba();
+            return Bitmap32.fromFloat(this.blockSize, this.blockSize, out.alphaTo1()).sliceCopy(7, 7, this.blockSize - 7, this.blockSize - 7).yCbCrToRgba();
         }
 
         constructor() {
@@ -614,6 +612,13 @@
             this.programs = null;
             this.biases = null;
             this.kernels = null;
+            //this.blockSize = 300;
+            //this.blockSize = 196;
+            this.blockSize = 128;
+            //this.blockSize = 96;
+            //this.blockSize = 64;
+            //this.blockSize = 16;
+            //this.blockSize = 48;
         }
 
         async init() {
@@ -633,7 +638,9 @@
             gl.getExtension('OES_texture_float');
 
             this.programs = this.steps.map((v) => {
-                return new GlProgram(gl, `const int NUM_INPUTS = ${v.nInputPlane};${vert}`, `const int NUM_INPUTS = ${v.nInputPlane};${frag}`);
+                let prefix = `const int NUM_INPUTS = ${v.nInputPlane};`;
+                prefix += `const int BLOCK_SIZE = ${this.blockSize};`;
+                return new GlProgram(gl, `${prefix}${vert}`, `${prefix}${frag}`);
             });
 
             this.biases = this.steps.map((v) => new GlTexture2d(gl).setFloatData(new Float32Array(v.bias)));
@@ -694,10 +701,11 @@
 
         //tex.setFloatData(2, 1, new Float32Array([1, 1, 1, 1, 0, 0, 0, 0]));
 
-        const img2x = image.toCanvas().scale(2, 2).toBitmap32();
+        const img2xBase = image.toCanvas().scale(2, 2).toBitmap32();
+        const img2x = img2xBase.sliceCopy(-7, -7, img2xBase.width + 7, img2xBase.height + 7);
 
-        mycanvas.width = img2x.width;
-        mycanvas.height = img2x.height;
+        mycanvas.width = img2xBase.width;
+        mycanvas.height = img2xBase.height;
         mycanvas.style.width = `${mycanvas.width}px`;
         mycanvas.style.height = `${mycanvas.height}py`;
 
@@ -707,17 +715,20 @@
         myctx.globalAlpha = 1.0;
         //const out = new Float32Array(128 * 128 * 4);
 
-        const xchunks = Math.ceil(img2x.width / 114);
-        const ychunks = Math.ceil(img2x.height / 114);
+        const blockSizeNP = waifu2x.blockSize - 14;
 
+        const xchunks = Math.ceil(img2x.width / blockSizeNP);
+        const ychunks = Math.ceil(img2x.height / blockSizeNP);
+
+        const startStart = Date.now();
         for (let yc = 0; yc < ychunks; yc++) {
             for (let xc = 0; xc < xchunks; xc++) {
-                let xx = xc * 114;
-                let yy = yc * 114;
+                let xx = xc * blockSizeNP;
+                let yy = yc * blockSizeNP;
 
-                const chunk = img2x.sliceCopy(-7 + xx, -7 + yy, 114 + 7 + xx, 114 + 7 + yy);
+                const chunk = img2x.sliceCopy(xx, yy, Math.min(img2x.width, xx + blockSizeNP + 14), Math.min(img2x.height, yy + blockSizeNP + 14));
 
-                console.log(xx, yy);
+                //console.log(xx, yy);
 
                 //console.log(img2x);
 
@@ -725,10 +736,13 @@
                 const start = Date.now();
                 const res = waifu2x.waifu2x(chunk);
                 const end = Date.now();
-                console.log('elapsed: ', end - start);
-                myctx.drawImage(res.toCanvas(), xx, yy);
+                console.log(`chunk (${xc}, ${yc}): ${end - start}`);
+                myctx.drawImage(res.toCanvas(), xx + 7, yy + 7);
             }
         }
+        const endEnd = Date.now();
+
+        console.log('totalTime: ', endEnd - startStart);
 
 
         //}, 100);

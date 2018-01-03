@@ -34,8 +34,8 @@ void main(void) {
         int blockColumn = int(mod(float(nIn), 16.0));
         int blockRow = int(floor(float(nIn) / 16.0));
 
-        int x = pos.x + (blockColumn * 128);
-        int y = pos.y + (blockRow * 128);
+        int x = pos.x + (blockColumn * BLOCK_SIZE);
+        int y = pos.y + (blockRow * BLOCK_SIZE);
 
         int nIn3 = nIn * 3;
         int nOut3 = nOut * 3;
