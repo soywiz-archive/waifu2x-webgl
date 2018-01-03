@@ -14,7 +14,7 @@
     }
 </style>
 <div>
-    <canvas id="mycanvas" width="256" height="256" style="border: 1px solid black;"/>
+    <canvas id="mycanvas" width="1" height="1" style="border: 1px solid black;"/>
 </div>
 <script type="text/javascript">
     function println(msg) {
@@ -242,6 +242,16 @@
             return this;
         }
 
+        setEmptyRgba(width, height) {
+            this.width = width;
+            this.height = height;
+            this.data = null;
+            gl.activeTexture(gl.TEXTURE7);
+            gl.bindTexture(gl.TEXTURE_2D, this.tex);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            return this;
+        }
+
         bind(unit = 0) {
             const gl = this.gl;
             gl.activeTexture(gl.TEXTURE0 + unit);
@@ -254,10 +264,8 @@
             return this;
         }
 
-        renderFloat4(width, height, callback) {
+        _renderCommon(width, height, callback) {
             const gl = this.gl;
-            this.setEmptyFloat4(width, height);
-
             const fb = gl.createFramebuffer();
             gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
             gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.tex, 0);
@@ -269,6 +277,16 @@
             }
         }
 
+        renderFloat4(width, height, callback) {
+            this.setEmptyFloat4(width, height);
+            this._renderCommon(width, height, callback);
+        }
+
+        renderRgba(width, height, callback) {
+            this.setEmptyRgba(width, height);
+            this._renderCommon(width, height, callback);
+        }
+
         dispose() {
             this.gl.deleteTexture(this.tex);
         }
@@ -278,6 +296,10 @@
         if (v < min) return min;
         if (v > max) return max;
         return v;
+    }
+
+    function clamp0_FF(v) {
+        return clamp(v, 0, 0xFF);
     }
 
     function packRGBA(r, g, b, a) {
@@ -346,7 +368,7 @@
             for (let y = 0; y < height; y++) {
                 for (let x = 0; x < width; x++) {
                     const ix = x + left;
-                    const iy = y + left;
+                    const iy = y + top;
                     out.set(x, y, this.valid(ix, iy) ? this.get(ix, iy) : 0)
                 }
             }
@@ -368,7 +390,78 @@
                 (this.data[i + 1] << 8) |
                 (this.data[i + 0] << 0);
         }
+
+        getY(r, g, b) {
+            return clamp0_FF((0 + (0.299 * r) + (0.587 * g) + (0.114 * b)));
+        }
+
+        getCb(r, g, b) {
+            return clamp0_FF((128 - (0.168736 * r) - (0.331264 * g) + (0.5 * b)));
+        }
+
+        getCr(r, g, b) {
+            return clamp0_FF((128 + (0.5 * r) - (0.418688 * g) - (0.081312 * b)));
+        }
+
+        getR(y, cb, cr) {
+            return clamp0_FF((y + 1.402 * (cr - 128)));
+        }
+
+        getG(y, cb, cr) {
+            return clamp0_FF((y - 0.34414 * (cb - 128) - 0.71414 * (cr - 128)));
+        }
+
+        getB(y, cb, cr) {
+            return clamp0_FF((y + 1.772 * (cb - 128)));
+        }
+
+        rgbaToYCbCr() {
+            const out = new Bitmap32(this.width, this.height);
+            let m = 0;
+            for (let n = 0; n < out.area; n++) {
+                const r = this.data[m + 0];
+                const g = this.data[m + 1];
+                const b = this.data[m + 2];
+                const a = this.data[m + 3];
+
+                out.data[m + 0] = this.getY(r, g, b);
+                out.data[m + 1] = this.getCb(r, g, b);
+                out.data[m + 2] = this.getCr(r, g, b);
+                out.data[m + 3] = a;
+
+                m += 4;
+            }
+            return out;
+        }
+
+        yCbCrToRgba() {
+            const out = new Bitmap32(this.width, this.height);
+            let m = 0;
+            for (let n = 0; n < out.area; n++) {
+                const y = this.data[m + 0];
+                const cb = this.data[m + 1];
+                const cr = this.data[m + 2];
+                const a = this.data[m + 3];
+
+                out.data[m + 0] = this.getR(y, cb, cr);
+                out.data[m + 1] = this.getG(y, cb, cr);
+                out.data[m + 2] = this.getB(y, cb, cr);
+                out.data[m + 3] = a;
+
+                m += 4;
+            }
+            return out;
+        }
     }
+
+    //class Bitmap32Float {
+    //    constructor(width, height, data = null) {
+    //        if (data == null)// data = new Float32Array(width * height * 4);
+    //        this.width = width;
+    //        this.height = height;
+    //        this.data = data;
+    //    }
+    //}
 
     class BatchBuilder {
         constructor() {
@@ -404,7 +497,7 @@
         }
     }
 
-    Float32Array.prototype.normalized = function() {
+    Float32Array.prototype.normalized = function () {
         const out = new Float32Array(this.length);
         let min = Infinity;
         let max = -Infinity;
@@ -419,7 +512,7 @@
         return out
     };
 
-    Float32Array.prototype.alphaTo1 = function() {
+    Float32Array.prototype.alphaTo1 = function () {
         const out = new Float32Array(this.length);
         for (let n = 0; n < this.length; n++) {
             out[n] = ((n % 4) === 3) ? 1 : this[n];
@@ -428,59 +521,181 @@
     };
 
     // document.createElement('canvas').getContext('webgl2').getSupportedExtensions()
-    const canvas = document.getElementById("mycanvas");
-    const ctx = canvas.getContext('2d');
+    const mycanvas = document.getElementById("mycanvas");
+
+    // {WebGLRenderingContext}
+    const myctx = mycanvas.getContext('2d');
     const image = document.getElementById("myimage");
 
-    //image.src = 'goku_small_bg.png';
-    image.src = 'img.png';
+    image.src = 'goku_small_bg.png';
+    //image.src = 'ss.jpg';
+    //image.src = 'img.png';
 
-    // https://gist.github.com/adrianseeley/f768fd7a3aab2370eafc
-    image.onload = async () => {
-        const steps = await readJson('models/scale2.0x_model.json');
-        //console.log(model);
-        const vert = await readText('waifu2x.vert');
-        const frag = await readText('waifu2x.frag');
+    class Waifu2x {
+        waifu2x(chunk) {
+            const chunkY = chunk.rgbaToYCbCr();
+            let out = new Float32Array(128 * 128 * 4);
+            let inp = new GlTexture2d(gl).setFloat4Data(chunkY.width, chunkY.height, chunkY.toFloat());
 
-        const webglCanvas = createCanvas(128, 128);
-        const gl = webglCanvas.getContext('webgl');
-        window.gl = gl;
-        const programs = steps.map((v) => { return new GlProgram(gl, `const int NUM_INPUTS = ${v.nInputPlane};${vert}`, `const int NUM_INPUTS = ${v.nInputPlane};${frag}`); });
+            for (let step = 0; step < 7; step++) {
+                const bias = this.biases[step];
+                const kernel = this.kernels[step];
+                const program = this.programs[step];
+                const nInputPlane = this.steps[step].nInputPlane;
+                const nOutputPlane = this.steps[step].nOutputPlane;
+                const outXBlocks = Math.min(nOutputPlane, 16);
+                const outYBlocks = Math.ceil(nOutputPlane / 16);
 
-        const biases = steps.map((v) => new GlTexture2d(gl).setFloatData(new Float32Array(v.bias)));
-        const kernels = steps.map((v) => {
-            const vInputPlane = v.nInputPlane;
-            const vOutputPlane = v.nOutputPlane;
+                console.log(`nInputPlane=${nInputPlane}, nOutputPlane=${nOutputPlane}, outXBlocks=${outXBlocks}, outYBlocks=${outYBlocks}`);
 
-            const width = vInputPlane * 3;
-            const height = vOutputPlane * 3;
+                let outp = new GlTexture2d(gl);
+                const outWidth = outXBlocks * 128;
+                const outHeight = outYBlocks * 128;
+                //const rout = new Float32Array(outWidth * outHeight * 4);
+                outp.renderFloat4(outWidth, outHeight, function (rb) {
+                    program.use();
 
-            const out = new Float32Array(width * height);
-            let n = 0;
-            for (let i = 0; i < vOutputPlane; i++) {
-                const I = v.weight[i];
+                    const aPos = gl.getAttribLocation(program.program, "aPos");
+                    const aInPos = gl.getAttribLocation(program.program, "aInPos");
+                    gl.uniform2f(gl.getUniformLocation(program.program, "pixelScale"), rb.width, rb.height);
 
-                const mY = i * 3;
+                    bias.bind(0);
+                    gl.uniform1i(gl.getUniformLocation(program.program, "bias"), 0);
+                    gl.uniform2f(gl.getUniformLocation(program.program, "biasScale"), bias.width, bias.height);
 
-                for (let j = 0; j < vInputPlane; j++) {
-                    const J = I[j];
+                    kernel.bind(1);
+                    gl.uniform1i(gl.getUniformLocation(program.program, "kernel"), 1);
+                    gl.uniform2f(gl.getUniformLocation(program.program, "kernelScale"), kernel.width, kernel.height);
 
-                    const mX = j * 3;
+                    inp.bind(2);
+                    gl.uniform1i(gl.getUniformLocation(program.program, "inp"), 2);
+                    gl.uniform2f(gl.getUniformLocation(program.program, "inpScale"), inp.width, inp.height);
 
-                    for (let y = 0; y < 3; y++) {
-                        const Y = J[y];
-                        for (let x = 0; x < 3; x++) {
-                            const vv = Y[x];
-                            const px = mX + x;
-                            const py = mY + y;
+                    const bb = new BatchBuilder();
+                    for (let n = 0; n < nOutputPlane; n++) {
+                        let blockX = Math.floor(n % 16);
+                        let blockY = Math.floor(n / 16);
+                        //console.log(blockX, blockY);
+                        bb.addQuad(blockX * 128, blockY * 128, 128 - step, 128 - step, n);
+                        //bb.addQuad(blockX * 128, blockY * 128, 128, 128, n);
+                    }
+                    //bb.addQuad(0, 0, 128, 128, 0);
 
-                            out[py * width + px] = vv;
+                    const vertexData = (new GlBuffer(gl, gl.ARRAY_BUFFER)).uploadFloats(bb.vertices).use();
+                    const elements = (new GlBuffer(gl, gl.ELEMENT_ARRAY_BUFFER)).uploadShorts(bb.indices).use();
+
+                    gl.enableVertexAttribArray(aPos);
+                    gl.enableVertexAttribArray(aInPos);
+                    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 4 * 5, 0);
+                    gl.vertexAttribPointer(aInPos, 3, gl.FLOAT, false, 4 * 5, 4 * 2);
+
+                    //gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+                    //console.log(bb.indices);
+                    //console.log(bb.indices.length);
+                    gl.drawElements(gl.TRIANGLES, bb.indices.length, gl.UNSIGNED_SHORT, 0);
+                    //console.log(gl.getError());
+
+                    elements.dispose();
+                    vertexData.dispose();
+
+                    if (step === 6) {
+                        gl.readPixels(0, 0, outWidth, outHeight, gl.RGBA, gl.FLOAT, out);
+                        //console.log(`${rb.width}x${rb.height}`);
+                        //console.log("+++++");
+                        //console.log(Array.from(bias.data));
+                        //console.log(Array.from(kernel.data));
+                        //console.log("-----");
+                        //console.log(inp.data[0], inp.data[1], inp.data[2], inp.data[3]);
+                        //console.log(rout);
+                    }
+                });
+
+                //const stepCanvas = Bitmap32.fromFloat(outWidth, outHeight, rout.normalized().alphaTo1()).toCanvas()
+                //stepCanvas.style.border = '1px solid blue';
+                //document.body.appendChild(stepCanvas);
+
+                inp.dispose();
+                inp = outp;
+            }
+            inp.dispose();
+
+            return Bitmap32.fromFloat(128, 128, out.alphaTo1()).sliceCopy(7, 7, 114 + 7, 114 + 7).yCbCrToRgba();
+        }
+
+        constructor() {
+            this.steps = null;
+            this.vert = null;
+            this.frag = null;
+            this.programs = null;
+            this.biases = null;
+            this.kernels = null;
+        }
+
+        async init() {
+            this.steps = await readJson('models/scale2.0x_model.json');
+            //console.log(model);
+            this.vert = await readText('waifu2x.vert');
+            this.frag = await readText('waifu2x.frag');
+
+            let vert = this.vert;
+            let frag = this.frag;
+
+            const webglCanvas = createCanvas(32, 32);
+            const gl = webglCanvas.getContext('webgl');
+            window.gl = gl;
+            this.programs = this.steps.map((v) => {
+                return new GlProgram(gl, `const int NUM_INPUTS = ${v.nInputPlane};${vert}`, `const int NUM_INPUTS = ${v.nInputPlane};${frag}`);
+            });
+
+            this.biases = this.steps.map((v) => new GlTexture2d(gl).setFloatData(new Float32Array(v.bias)));
+            this.kernels = this.steps.map((v) => {
+                const vInputPlane = v.nInputPlane;
+                const vOutputPlane = v.nOutputPlane;
+
+                const width = vInputPlane * 3;
+                const height = vOutputPlane * 3;
+
+                const out = new Float32Array(width * height);
+                let n = 0;
+                for (let i = 0; i < vOutputPlane; i++) {
+                    const I = v.weight[i];
+
+                    const mY = i * 3;
+
+                    for (let j = 0; j < vInputPlane; j++) {
+                        const J = I[j];
+
+                        const mX = j * 3;
+
+                        for (let y = 0; y < 3; y++) {
+                            const Y = J[y];
+                            for (let x = 0; x < 3; x++) {
+                                const vv = Y[x];
+                                const px = mX + x;
+                                const py = mY + y;
+
+                                out[py * width + px] = vv;
+                            }
                         }
                     }
                 }
-            }
-            return new GlTexture2d(gl).setFloatData(new Float32Array(out), vInputPlane * 3, vOutputPlane * 3)
+                return new GlTexture2d(gl).setFloatData(new Float32Array(out), vInputPlane * 3, vOutputPlane * 3)
+            });
+            gl.clearColor(1, 0, 0, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+        }
+    }
+
+    async function sleep(ms) {
+        return new Promise((resolve, reject) => {
+            setTimeout(() => { resolve(); }, ms);
         });
+    }
+
+    // https://gist.github.com/adrianseeley/f768fd7a3aab2370eafc
+    image.onload = async () => {
+        let waifu2x = new Waifu2x();
+        await waifu2x.init();
 
         //console.log('' + kernels[0].data);
         //console.log(kernels);
@@ -488,126 +703,51 @@
         //gl.enableVertexAttribArray();
 
         //setInterval(function() {
-        gl.clearColor(1, 0, 0, 1);
-        gl.clear(gl.COLOR_BUFFER_BIT);
 
         //tex.setFloatData(2, 1, new Float32Array([1, 1, 1, 1, 0, 0, 0, 0]));
 
-        const img2x = image.toCanvas().scale(2, 2).toBitmap32().sliceCopy(-7, -7, 114 + 7, 114 + 7);
-        ctx.drawImage(img2x.toCanvas(), 0, 0);
+        const img2x = image.toCanvas().scale(2, 2).toBitmap32();
+
+        mycanvas.width = img2x.width;
+        mycanvas.height = img2x.height;
+        mycanvas.style.width = `${mycanvas.width}px`;
+        mycanvas.style.height = `${mycanvas.height}py`;
+
+        //myctx.globalCompositeOperation = 'copy';
+        myctx.globalAlpha = 0.5;
+        myctx.drawImage(img2x.toCanvas(), 0, 0);
+        myctx.globalAlpha = 1.0;
         //const out = new Float32Array(128 * 128 * 4);
 
-        console.log(img2x);
-        var out = null;
-        let inp = new GlTexture2d(gl).setFloat4Data(img2x.width, img2x.height, img2x.toFloat());
+        const xchunks = Math.ceil(img2x.width / 114);
+        const ychunks = Math.ceil(img2x.height / 114);
 
-        /*
-        let sum = 0;
-        for (let n = 0; n < inp.data.length; n++) {
-            sum += inp.data[n];
+        for (let yc = 0; yc < ychunks; yc++) {
+            for (let xc = 0; xc < xchunks; xc++) {
+                let xx = xc * 114;
+                let yy = yc * 114;
+
+                const chunk = img2x.sliceCopy(-7 + xx, -7 + yy, 114 + 7 + xx, 114 + 7 + yy);
+
+                console.log(xx, yy);
+
+                //console.log(img2x);
+
+                await sleep(0);
+                const start = Date.now();
+                const res = waifu2x.waifu2x(chunk);
+                const end = Date.now();
+                console.log('elapsed: ', end - start);
+                myctx.drawImage(res.toCanvas(), xx, yy);
+            }
         }
-        console.log(sum);
-        console.log(inp.data);
-        */
-        const start = Date.now();
-        for (let step = 0; step < 7; step++) {
-            const bias = biases[step];
-            const kernel = kernels[step];
-            const program = programs[step];
-            const nInputPlane = steps[step].nInputPlane;
-            const nOutputPlane = steps[step].nOutputPlane;
 
-
-            const outXBlocks = Math.min(nOutputPlane, 16);
-            const outYBlocks = Math.ceil(nOutputPlane / 16);
-
-            console.log(`nInputPlane=${nInputPlane}, nOutputPlane=${nOutputPlane}, outXBlocks=${outXBlocks}, outYBlocks=${outYBlocks}`);
-
-            let outp = new GlTexture2d(gl);
-            const outWidth = outXBlocks * 128;
-            const outHeight = outYBlocks * 128;
-            const rout = new Float32Array(outWidth * outHeight * 4);
-            outp.renderFloat4(outWidth, outHeight, function (rb) {
-                program.use();
-
-                const aPos = gl.getAttribLocation(program.program, "aPos");
-                const aInPos = gl.getAttribLocation(program.program, "aInPos");
-                gl.uniform2f(gl.getUniformLocation(program.program, "pixelScale"), rb.width, rb.height);
-
-                bias.bind(0);
-                gl.uniform1i(gl.getUniformLocation(program.program, "bias"), 0);
-                gl.uniform2f(gl.getUniformLocation(program.program, "biasScale"), bias.width, bias.height);
-
-                kernel.bind(1);
-                gl.uniform1i(gl.getUniformLocation(program.program, "kernel"), 1);
-                gl.uniform2f(gl.getUniformLocation(program.program, "kernelScale"), kernel.width, kernel.height);
-
-                inp.bind(2);
-                gl.uniform1i(gl.getUniformLocation(program.program, "inp"), 2);
-                gl.uniform2f(gl.getUniformLocation(program.program, "inpScale"), inp.width, inp.height);
-
-                const bb = new BatchBuilder();
-                for (let n = 0; n < nOutputPlane; n++) {
-                    let blockX = Math.floor(n % 16);
-                    let blockY = Math.floor(n / 16);
-                    //console.log(blockX, blockY);
-                    bb.addQuad(blockX * 128, blockY * 128, 128 - step, 128 - step, n);
-                    //bb.addQuad(blockX * 128, blockY * 128, 128, 128, n);
-                }
-                //bb.addQuad(0, 0, 128, 128, 0);
-
-                const vertexData = (new GlBuffer(gl, gl.ARRAY_BUFFER)).uploadFloats(bb.vertices).use();
-                const elements = (new GlBuffer(gl, gl.ELEMENT_ARRAY_BUFFER)).uploadShorts(bb.indices).use();
-
-                gl.enableVertexAttribArray(aPos);
-                gl.enableVertexAttribArray(aInPos);
-                gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 4 * 5, 0);
-                gl.vertexAttribPointer(aInPos, 3, gl.FLOAT, false, 4 * 5, 4 * 2);
-
-                //gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-                //console.log(bb.indices);
-                //console.log(bb.indices.length);
-                gl.drawElements(gl.TRIANGLES, bb.indices.length, gl.UNSIGNED_SHORT, 0);
-                //console.log(gl.getError());
-
-                elements.dispose();
-                vertexData.dispose();
-
-                if (step === 6) {
-                    gl.readPixels(0, 0, outWidth, outHeight, gl.RGBA, gl.FLOAT, rout);
-                    //console.log(`${rb.width}x${rb.height}`);
-                    //console.log("+++++");
-                    //console.log(Array.from(bias.data));
-                    //console.log(Array.from(kernel.data));
-                    //console.log("-----");
-                    //console.log(inp.data[0], inp.data[1], inp.data[2], inp.data[3]);
-                    console.log(rout);
-                    out = rout;
-                }
-            });
-
-            //const stepCanvas = Bitmap32.fromFloat(outWidth, outHeight, rout.normalized().alphaTo1()).toCanvas()
-            //stepCanvas.style.border = '1px solid blue';
-            //document.body.appendChild(stepCanvas);
-
-            inp.dispose();
-            inp = outp;
-        }
-        const end = Date.now();
-
-        console.log('elapsed: ', end - start);
-
-
-
-        const resultCanvas = Bitmap32.fromFloat(128, 128, out.alphaTo1()).sliceCopy(7, 7, 114 + 7, 114 + 7).toCanvas();
-        resultCanvas.style.border = '1px solid green';
-        document.body.appendChild(resultCanvas);
 
         //}, 100);
 
-        document.body.appendChild(webglCanvas);
+        //document.body.appendChild(webglCanvas);
 
-        println("ready");
+        println("done!");
         //const img = image.toCanvas().scale(2, 2).toBitmap32().sliceCopy(-7, -7, image.width * 2 + 7, image.height * 2 + 7).toCanvas();
         //ImageUtils.scaleImageData(data)
         //console.log(data);

@@ -62,13 +62,18 @@ void main(void) {
     for (int nIn = 0; nIn < NUM_INPUTS; nIn++) {
         int blockColumn = int(mod(float(nIn), 16.0));
         int blockRow = int(floor(float(nIn) / 16.0));
+        //int blockColumn = 0;
+        //int blockRow = 0;
 
         int x = pos.x + (blockColumn * 128);
         int y = pos.y + (blockRow * 128);
 
+        //mat3 krn = getKernel(nIn, nOut);
+
         //for (int my = 0; my < 3; my++) {
         //    for (int mx = 0; mx < 3; mx++) {
-        //        acc += getInputTexel(x + mx, y + my) * vec4(getKernelFloat(nIn * 3 + mx, nOut * 3 + my));
+        //        //acc += getInputTexel(x + mx, y + my) * vec4(getKernelFloat(nIn * 3 + mx, nOut * 3 + my));
+        //        acc += getInputTexel(x + mx, y + my) * vec4(krn[mx][my//]);
         //    }
         //}
 
